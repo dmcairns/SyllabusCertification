@@ -7,6 +7,11 @@ library(shiny)
 library(httr)
 library(dplyr)
 library(jsonlite) # Added for JSON parsing
+library(RSQLite)
+library(dbplyr)
+library(DT)
+library(gt)
+
 
 # OAuth setup --------------------------------------------------------
 
@@ -47,13 +52,46 @@ scope <- "https://www.googleapis.com/auth/userinfo.email openid"
 
 # Shiny -------------------------------------------------------------------
 
-ui <- fluidPage(
-  # Your regular UI goes here, for when everything is properly auth'd
-  h3("Fozzie"),
+ui <- bs4Dash::dashboardPage(
+    #freshTheme = geogDashboardThemeFresh,
+    options = NULL,
+    header = bs4Dash::dashboardHeader(
+      title = bs4Dash::dashboardBrand(
+        title = "",
+        image = "GeographyBannerSM.png",
+        color = "primary",
+        opacity = 1
+      ),
+      #rightUI = uiOutput("dropdownMenu"),
+      status = "primary",
+      skin = "light",
+      sidebarIcon = shiny::icon("bars")
+    ),
+    sidebar = bs4Dash::bs4DashSidebar(
+      disable = FALSE,
+      minified=FALSE
+    ),
+    body = bs4Dash::dashboardBody(
+      id="dashboardBody",
+      tagList(
+        verbatimTextOutput("userInfo"),
+        # bs4Dash::box(
+        #   title = "Created Boxes",
+        #   collapsible = FALSE,
+        #   status = "primary",
+        #   width = 12,
+        #   tableOutput("box_list_table")
+        # ),
+        div(id = "placeholderInBody")
+      )
+      , title = "CLAT Syllabus Review"
+      , dark = NULL
+      , help = NULL
+    )
+  )
+  #h3("Syllabus Review Tracking"),
   # Changed to display the user ID from the userinfo call
-  verbatimTextOutput("google_user_id"),
-  verbatimTextOutput("userInfo")
-)
+  #verbatimTextOutput("google_user_id"),
 
 # A little-known feature of Shiny is that the UI can be a function, not just
 # objects. You can use this to dynamically render the UI based on the request.
@@ -96,17 +134,17 @@ server <- function(input, output, session) {
 
   # 3. Parse the JSON content and extract the 'sub' field (Google user ID)
   user_data <- content(resp, "text") %>% fromJSON()
-  google_user_id <- user_data$sub
+  # google_user_id <- user_data$sub
 
   # 4. Display the extracted Google User ID
-  output$google_user_id <- renderText({
-    # Check if the user ID was successfully retrieved
-    if (!is.null(google_user_id) && nchar(google_user_id) > 0) {
-      paste("Google User ID (sub):", google_user_id)
-    } else {
-      "Error: Could not retrieve Google User ID."
-    }
-  })
+  # output$google_user_id <- renderText({
+  #   # Check if the user ID was successfully retrieved
+  #   if (!is.null(google_user_id) && nchar(google_user_id) > 0) {
+  #     paste("Google User ID (sub):", google_user_id)
+  #   } else {
+  #     "Error: Could not retrieve Google User ID."
+  #   }
+  # })
 
   # The original output is modified to show the email if available (e.g., if scope included email)
   user_email <- user_data$email
