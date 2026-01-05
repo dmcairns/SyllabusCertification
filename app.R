@@ -6,11 +6,16 @@
 library(shiny)
 library(httr)
 library(dplyr)
+library(dbplyr)
 library(jsonlite) # Added for JSON parsing
 library(RSQLite)
 library(dbplyr)
 library(DT)
 library(gt)
+library(DBFunctionsTAMU)
+library(RMySQL)
+library(crayon)
+
 
 
 # OAuth setup --------------------------------------------------------
@@ -62,26 +67,36 @@ ui <- bs4Dash::dashboardPage(
         color = "primary",
         opacity = 1
       ),
-      #rightUI = uiOutput("dropdownMenu"),
+      rightUI = uiOutput("dropdownMenu"),
       status = "primary",
       skin = "light",
-      sidebarIcon = shiny::icon("bars")
+      sidebarIcon = shiny::icon("bars"),
+        tags$script(HTML("
+      $(document).on('click', '#syllabiGrid td', function() {
+        // Get the row index (0-based) and add 1
+        var rowIndex = $(this).closest('tr').index() + 1;
+
+        // Send the value to Shiny input 'clicked_row'
+        Shiny.setInputValue('clicked_row', rowIndex, {priority: 'event'});
+      });
+    "))
     ),
     sidebar = bs4Dash::bs4DashSidebar(
-      disable = FALSE,
+      tagList(h4("something")),
+      disable = TRUE,
       minified=FALSE
     ),
     body = bs4Dash::dashboardBody(
       id="dashboardBody",
       tagList(
         verbatimTextOutput("userInfo"),
-        # bs4Dash::box(
-        #   title = "Created Boxes",
-        #   collapsible = FALSE,
-        #   status = "primary",
-        #   width = 12,
-        #   tableOutput("box_list_table")
-        # ),
+        bs4Dash::box(
+          title = "Created Boxes",
+          collapsible = FALSE,
+          status = "primary",
+          width = 12,
+          gt_output("syllabiGrid")
+        ),
         div(id = "placeholderInBody")
       )
       , title = "CLAT Syllabus Review"
@@ -154,6 +169,100 @@ server <- function(input, output, session) {
     } else {
       "Email not available."
     }
+  })
+  output$dropdownMenu <- renderUI({
+    #Create list of course prefixes.
+    semCode <- "202611"
+    selectedPrefixes <- c("GEOG", "GEOS")
+    selectedPrefixes <- c("GEOG")
+    dbConn <- DBFunctionsTAMU::createDBConnection()
+    theTables <- dbGetQuery(dbConn, "SHOW TABLES")
+    DBFunctionsTAMU::closeAllDBConnections()
+    thePrefixes <- theTables %>%
+      select("prefix"="Tables_in_DH_Admin_Data") %>%
+      filter(stringr::str_detect(prefix, semCode)) %>%
+      mutate(course=substr(prefix,1,4))  %>%
+      mutate(prefix=stringr::str_sub(course, 1, 4)) %>%
+      pull(prefix) %>%
+      sort() %>%
+      unique()
+
+    selectInput("prefixInput", label="Course Prefixes", choices=thePrefixes, selected=selectedPrefixes, multiple=TRUE)
+  })
+  output$syllabiGrid <- render_gt({
+    # if(is.reactive(inData)){
+    #   useData <- inData()
+    # } else {
+    #   useData <- inData
+    # }
+    # Download courses for chosen prefix in 202611
+
+    semDesignation <- "202611"
+    if(!is.null(input$prefixInput)){
+      fileName <- paste0(input$prefixInput, semDesignation)
+      dbConn <- DBFunctionsTAMU::createDBConnection()
+      theTable <- tbl(dbConn, fileName)
+      #useData <- dbGetQuery(dbConn, paste0("SELECT * FROM ", fileName))
+      useData <- theTable %>%
+        #filter(timeStamp == max(timeStamp, na.rm = TRUE)) %>%
+        collect()
+      latestDate <- max(useData$timeStamp, na.rm=TRUE)
+      useData <- useData %>%
+        filter(timeStamp == latestDate) %>%
+        group_by(course.designation1) %>%
+        summarize(numEnrolled=sum(numEnrolled))
+      DBFunctionsTAMU::closeAllDBConnections()
+      dbConn <- DBFunctionsTAMU::createDBConnection()
+      theTables <- dbGetQuery(dbConn, "SHOW TABLES")
+      DBFunctionsTAMU::closeAllDBConnections()
+      theTables <- theTables %>%
+        filter(Tables_in_DH_Admin_Data == "SyllabusTableGEOG202611")
+      if(nrow(theTables)==0){
+        # Table does not exist.  Create it!
+        cat(blue("Creating SyllabusTableGEOG202611"))
+        newTable <- useData %>%
+          mutate(syllabus=FALSE)
+        dbConn <- DBFunctionsTAMU::createDBConnection()
+        dbWriteTable(dbConn, "SyllabusTableGEOG202611", newTable)
+        DBFunctionsTAMU::closeAllDBConnections()
+        useData <- newTable
+
+      } else {
+        cat(red("Table does exist.  Join info with useData"))
+        dbConn <- DBFunctionsTAMU::createDBConnection()
+        theTable <- tbl(dbConn, "SyllabusTableGEOG202611")
+        statusTable <- theTable %>%
+          collect() %>%
+          select("course.designation1", "syllabus") %>%
+          mutate(syllabus=as.logical(syllabus))
+
+        joinedData <- useData %>%
+          left_join(statusTable) %>%
+          gt() %>%
+          text_transform(
+            locations = cells_body(columns = c(syllabus)),
+            fn = function(x) {
+              # x is the vector of values in the cell
+              case_when(
+                x == "TRUE"  ~ as.character(htmltools::tagList(
+                  htmltools::tags$i(class = "fa fa-check", style = "color: green;")
+                )),
+                x == "FALSE" ~ as.character(htmltools::tagList(
+                  htmltools::tags$i(class = "fa fa-times", style = "color: red;")
+                )),
+                TRUE ~ x
+              )
+            }
+          )
+      }
+    } else {
+        useData <- mtcars
+    }
+
+
+  })
+  observeEvent(input$clicked_row, {
+    cat("Row", input$clicked_row, "clicked.\n")
   })
 }
 
