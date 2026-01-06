@@ -73,11 +73,17 @@ ui <- bs4Dash::dashboardPage(
       sidebarIcon = shiny::icon("bars"),
         tags$script(HTML("
       $(document).on('click', '#syllabiGrid td', function() {
-        // Get the row index (0-based) and add 1
+        // 1. Get the text value of the clicked cell
+        var cellValue = $(this).text();
+
+        // 2. Get the row index (adding 1 for R's 1-based indexing)
         var rowIndex = $(this).closest('tr').index() + 1;
 
-        // Send the value to Shiny input 'clicked_row'
-        Shiny.setInputValue('clicked_row', rowIndex, {priority: 'event'});
+        // 3. Send both values to Shiny as a single list object
+        Shiny.setInputValue('table_click_data', {
+          value: cellValue,
+          row: rowIndex
+        }, {priority: 'event'});
       });
     "))
     ),
@@ -189,14 +195,127 @@ server <- function(input, output, session) {
 
     selectInput("prefixInput", label="Course Prefixes", choices=thePrefixes, selected=selectedPrefixes, multiple=TRUE)
   })
-  output$syllabiGrid <- render_gt({
-    # if(is.reactive(inData)){
-    #   useData <- inData()
-    # } else {
-    #   useData <- inData
-    # }
-    # Download courses for chosen prefix in 202611
 
+  # #syllabiTable <- reactive({
+  #   semDesignation <- "202611"
+  #   if(!is.null(input$prefixInput)){
+  #     fileName <- paste0(input$prefixInput, semDesignation)
+  #     dbConn <- DBFunctionsTAMU::createDBConnection()
+  #     theTable <- tbl(dbConn, fileName)
+  #     #useData <- dbGetQuery(dbConn, paste0("SELECT * FROM ", fileName))
+  #     useData <- theTable %>%
+  #       #filter(timeStamp == max(timeStamp, na.rm = TRUE)) %>%
+  #       collect()
+  #     latestDate <- max(useData$timeStamp, na.rm=TRUE)
+  #     useData <- useData %>%
+  #       filter(timeStamp == latestDate) %>%
+  #       group_by(course.designation1) %>%
+  #       summarize(numEnrolled=sum(numEnrolled))
+  #     DBFunctionsTAMU::closeAllDBConnections()
+  #     dbConn <- DBFunctionsTAMU::createDBConnection()
+  #     theTables <- dbGetQuery(dbConn, "SHOW TABLES")
+  #     DBFunctionsTAMU::closeAllDBConnections()
+  #     theTables <- theTables %>%
+  #       filter(Tables_in_DH_Admin_Data == "SyllabusTableGEOG202611")
+  #     if(nrow(theTables)==0){
+  #       # Table does not exist.  Create it!
+  #       cat(blue("Creating SyllabusTableGEOG202611\n"))
+  #       newTable <- useData %>%
+  #         mutate(syllabus=FALSE)
+  #       dbConn <- DBFunctionsTAMU::createDBConnection()
+  #       dbWriteTable(dbConn, "SyllabusTableGEOG202611", newTable)
+  #       DBFunctionsTAMU::closeAllDBConnections()
+  #       useData <- newTable
+  #
+  #     } else {
+  #       cat(red("Table does exist.  Join info with useData"))
+  #       dbConn <- DBFunctionsTAMU::createDBConnection()
+  #       theTable <- tbl(dbConn, "SyllabusTableGEOG202611")
+  #       statusTable <- theTable %>%
+  #         collect() %>%
+  #         select("course.designation1", "syllabus") %>%
+  #         mutate(syllabus=as.logical(syllabus))
+  #       outTable <- useData %>%
+  #         left_join(statusTable)
+  #     }} else {
+  #       outTable <- mtcars
+  #     }
+  # #   outTable
+  # # })
+  rvSyllabiTable <- reactiveVal(data.frame(mtcars))
+  #rvSyllabiTable <- reactiveVal(observe(syllabiTable))
+  output$syllabiGrid <- render_gt({
+
+    # semDesignation <- "202611"
+    # if(!is.null(input$prefixInput)){
+    #   fileName <- paste0(input$prefixInput, semDesignation)
+    #   dbConn <- DBFunctionsTAMU::createDBConnection()
+    #   theTable <- tbl(dbConn, fileName)
+    #   #useData <- dbGetQuery(dbConn, paste0("SELECT * FROM ", fileName))
+    #   useData <- theTable %>%
+    #     #filter(timeStamp == max(timeStamp, na.rm = TRUE)) %>%
+    #     collect()
+    #   latestDate <- max(useData$timeStamp, na.rm=TRUE)
+    #   useData <- useData %>%
+    #     filter(timeStamp == latestDate) %>%
+    #     group_by(course.designation1) %>%
+    #     summarize(numEnrolled=sum(numEnrolled))
+    #   DBFunctionsTAMU::closeAllDBConnections()
+    #   dbConn <- DBFunctionsTAMU::createDBConnection()
+    #   theTables <- dbGetQuery(dbConn, "SHOW TABLES")
+    #   DBFunctionsTAMU::closeAllDBConnections()
+    #   theTables <- theTables %>%
+    #     filter(Tables_in_DH_Admin_Data == "SyllabusTableGEOG202611")
+    #   if(nrow(theTables)==0){
+    #     # Table does not exist.  Create it!
+    #     cat(blue("Creating SyllabusTableGEOG202611"))
+    #     newTable <- useData %>%
+    #       mutate(syllabus=FALSE)
+    #     dbConn <- DBFunctionsTAMU::createDBConnection()
+    #     dbWriteTable(dbConn, "SyllabusTableGEOG202611", newTable)
+    #     DBFunctionsTAMU::closeAllDBConnections()
+    #     useData <- newTable
+    #
+    #   } else {
+    #     cat(red("Table does exist.  Join info with useData"))
+    #     dbConn <- DBFunctionsTAMU::createDBConnection()
+    #     theTable <- tbl(dbConn, "SyllabusTableGEOG202611")
+    #     statusTable <- theTable %>%
+    #       collect() %>%
+    #       select("course.designation1", "syllabus") %>%
+    #       mutate(syllabus=as.logical(syllabus))
+    #           outTable <- useData %>%
+    #             left_join(statusTable)
+    #         }} else {
+    #           outTable <- mtcars
+    #         }
+
+    # outTable %>%
+    rvSyllabiTable() %>%
+          gt() %>%
+          text_transform(
+            locations = cells_body(columns = c(syllabus)),
+            fn = function(x) {
+              # x is the vector of values in the cell
+              case_when(
+                x == "TRUE"  ~ as.character(htmltools::tagList(
+                  htmltools::tags$i(class = "fa fa-check", style = "color: green;")
+                )),
+                x == "FALSE" ~ as.character(htmltools::tagList(
+                  htmltools::tags$i(class = "fa fa-times", style = "color: red;")
+                )),
+                TRUE ~ x
+              )
+            }
+          )
+    #   }
+    # } #else {
+    #   #  useData <- mtcars
+    # #}
+
+
+  })
+  observeEvent(input$prefixInput, {
     semDesignation <- "202611"
     if(!is.null(input$prefixInput)){
       fileName <- paste0(input$prefixInput, semDesignation)
@@ -235,34 +354,63 @@ server <- function(input, output, session) {
           collect() %>%
           select("course.designation1", "syllabus") %>%
           mutate(syllabus=as.logical(syllabus))
-
-        joinedData <- useData %>%
-          left_join(statusTable) %>%
-          gt() %>%
-          text_transform(
-            locations = cells_body(columns = c(syllabus)),
-            fn = function(x) {
-              # x is the vector of values in the cell
-              case_when(
-                x == "TRUE"  ~ as.character(htmltools::tagList(
-                  htmltools::tags$i(class = "fa fa-check", style = "color: green;")
-                )),
-                x == "FALSE" ~ as.character(htmltools::tagList(
-                  htmltools::tags$i(class = "fa fa-times", style = "color: red;")
-                )),
-                TRUE ~ x
-              )
-            }
-          )
+        outTable <- useData %>%
+          left_join(statusTable)
+      }} else {
+        outTable <- mtcars
       }
-    } else {
-        useData <- mtcars
-    }
-
+    rvSyllabiTable(outTable)
+    #browser()
+    showNotification(paste("the prefix is:", input$prefixInput, "."), type = "message")
 
   })
-  observeEvent(input$clicked_row, {
-    cat("Row", input$clicked_row, "clicked.\n")
+  observeEvent(input$table_click_data, {
+
+    #cat("Row", input$clicked_row, "clicked.\n")
+    # open a modal window to upload a file.
+    # alter syllabus availablity to TRUE
+    showModal(modalDialog(
+      title = "File Actions",
+
+      # Modal Content
+
+      fileInput("pdfUpload", "Choose a file"),
+
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("save_settings", "Save Changes", class = "btn-success")
+      ),
+      easyClose = TRUE, # Allows clicking outside the modal to close it
+      fade = TRUE       # Smooth transition animation
+    ))
+
+  })
+  observeEvent(input$pdfUpload, {
+    req(input$pdfUpload)
+
+    # Define the destination path
+    # We use the original filename from the user's computer
+    dest_path <- file.path("syllabi", paste0(input$table_click_data$value, ".pdf"))
+
+    # Copy file from temp location to target folder
+    success <- file.copy(input$pdfUpload$datapath, dest_path, overwrite = TRUE)
+    # syllabiTable <- syllabiTable() %>%
+    #   mutate(syllabus = case_when(course.designation1==input$table_click_data$value ~ TRUE,
+    #                               TRUE ~ syllabus))
+
+    if (success) {
+      showNotification(paste("Successfully saved:", input$pdfUpload$name), type = "message")
+          dbConn <- DBFunctionsTAMU::createDBConnection()
+          midTable <- dbGetQuery(dbConn, "SELECT * FROM SyllabusTableGEOG202611")
+          midTable <- midTable %>%
+            mutate(syllabus = case_when(course.designation1==input$table_click_data$value ~ 1,
+                                        TRUE ~ syllabus)) %>%
+            select(-"row_names")
+          dbWriteTable(dbConn, "SyllabusTableGEOG202611", midTable, overwrite=TRUE)
+          DBFunctionsTAMU::closeAllDBConnections()
+    } else {
+      showNotification("Error: Could not save file.", type = "error")
+    }
   })
 }
 
