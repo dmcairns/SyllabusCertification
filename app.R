@@ -17,7 +17,7 @@ library(RMySQL)
 library(crayon)
 library(qpdf)
 
-
+semCode <- "202611"
 
 # OAuth setup --------------------------------------------------------
 
@@ -180,7 +180,6 @@ server <- function(input, output, session) {
   output$dropdownMenu <- renderUI({
     #Create list of course prefixes.
     semCode <- "202611"
-    selectedPrefixes <- c("GEOG", "GEOS")
     selectedPrefixes <- c("GEOG")
     dbConn <- DBFunctionsTAMU::createDBConnection()
     theTables <- dbGetQuery(dbConn, "SHOW TABLES")
@@ -194,7 +193,7 @@ server <- function(input, output, session) {
       sort() %>%
       unique()
 
-    selectInput("prefixInput", label="Course Prefixes", choices=thePrefixes, selected=selectedPrefixes, multiple=TRUE)
+    selectInput("prefixInput", label="Course Prefixes", choices=thePrefixes, selected=selectedPrefixes, multiple=FALSE)
   })
 
 
@@ -293,28 +292,43 @@ server <- function(input, output, session) {
       dbConn <- DBFunctionsTAMU::createDBConnection()
       theTables <- dbGetQuery(dbConn, "SHOW TABLES")
       DBFunctionsTAMU::closeAllDBConnections()
+      syllabusTableName <- paste0("SyllabusTable", input$prefixInput, semCode)
       theTables <- theTables %>%
-        filter(Tables_in_DH_Admin_Data == "SyllabusTableGEOG202611")
+        filter(Tables_in_DH_Admin_Data == paste0("SyllabusTable", input$prefixInput, semCode))
       if(nrow(theTables)==0){
         # Table does not exist.  Create it!
-        cat(blue("Creating SyllabusTableGEOG202611"))
+        #cat(blue("Creating SyllabusTableGEOG202611"))
+        cat(blue("Creating", paste0("SyllabusTable", input$prefixInput, semCode), "\n"))
         newTable <- useData %>%
-          mutate(syllabus=FALSE)
+          mutate(syllabus=FALSE) %>%
+          mutate(Q1=NA) %>%
+          mutate(Q2=NA) %>%
+          mutate(Q3=NA) %>%
+          mutate(Q4=NA) %>%
+          mutate(Q5=NA) %>%
+          mutate(Q6=NA) %>%
+          mutate(Q7=NA) %>%
+          mutate(Q8=NA) %>%
+          mutate(Q9=NA) %>%
+          mutate(Certify=NA) %>%
+          mutate(Date=NA)
         dbConn <- DBFunctionsTAMU::createDBConnection()
-        dbWriteTable(dbConn, "SyllabusTableGEOG202611", newTable)
+        #dbWriteTable(dbConn, "SyllabusTableGEOG202611", newTable)
+        dbWriteTable(dbConn, paste0("SyllabusTable", input$prefixInput, semCode), newTable)
         DBFunctionsTAMU::closeAllDBConnections()
         useData <- newTable
-
+        outTable <- useData
       } else {
-        cat(red("Table does exist.  Join info with useData"))
+        #cat(red("Table does exist.  Join info with useData\n"))
         dbConn <- DBFunctionsTAMU::createDBConnection()
-        theTable <- tbl(dbConn, "SyllabusTableGEOG202611")
+        #theTable <- tbl(dbConn, "SyllabusTableGEOG202611")
+        theTable <- tbl(dbConn, paste0("SyllabusTable", input$prefixInput, semCode))
         statusTable <- theTable %>%
           collect() %>%
           select("course.designation1", "syllabus", starts_with("Q"), "Certify", "Date") %>%
           mutate(syllabus=as.logical(syllabus))
         outTable <- useData %>%
-          left_join(statusTable)
+          left_join(statusTable, by="course.designation1")
       }} else {
         outTable <- mtcars
       }
@@ -328,12 +342,20 @@ server <- function(input, output, session) {
     #cat("Row", input$clicked_row, "clicked.\n")
     # open a modal window to upload a file.
     # alter syllabus availablity to TRUE
+    # copy the syllabus file into the www/syllabi directory
+    file.copy(paste0(getwd(), "/syllabi/", input$table_click_data$value, ".pdf"),
+              paste0(getwd(), "/www/syllabi/", input$table_click_data$value, ".pdf"))
+
     showModal(modalDialog(
       title = "File Actions",
 
       # Modal Content
       tagList(
         fileInput("pdfUpload", "Choose a file"),
+        tags$a(href = paste0("syllabi/", input$table_click_data$value, ".pdf"),
+               target = "_blank",
+               class = "btn btn-default",
+               "Open PDF in New Tab"),
         br(),
         h3("Certification Questions"),
         radioButtons("Q1", label="Are Course Materials and Topics Aligned with Course Description and Learning Outcomes?",
@@ -380,6 +402,13 @@ server <- function(input, output, session) {
       fade = TRUE       # Smooth transition animation
     ))
 
+    # Below doesn't work here.  Need to find a place where it will to keep
+    # file structure clean.
+    # if (file.exists(paste0(getwd(), "/www/syllabi/", input$table_click_data$value, ".pdf"))) {
+    #   #Delete file if it exists
+    #   file.remove(paste0(getwd(), "/www/syllabi/", input$table_click_data$value, ".pdf"))
+    # }
+
   })
   observeEvent(input$pdfUpload, {
     req(input$pdfUpload)
@@ -397,7 +426,8 @@ server <- function(input, output, session) {
     if (success) {
       showNotification(paste("Successfully saved:", input$pdfUpload$name), type = "message")
           dbConn <- DBFunctionsTAMU::createDBConnection()
-          midTable <- dbGetQuery(dbConn, "SELECT * FROM SyllabusTableGEOG202611")
+          #midTable <- dbGetQuery(dbConn, "SELECT * FROM SyllabusTableGEOG202611")
+          midTable <- dbGetQuery(dbConn, paste0("SELECT * FROM SyllabusTable", input$prefixInput, semCode))
           midTable <- midTable %>%
             mutate(syllabus = case_when(course.designation1==input$table_click_data$value ~ 1,
                                         TRUE ~ syllabus))
@@ -408,7 +438,8 @@ server <- function(input, output, session) {
           rvSyllabiTable(displayTable)
           midTable <- midTable %>%
             select(-"row_names")
-          dbWriteTable(dbConn, "SyllabusTableGEOG202611", midTable, overwrite=TRUE)
+          #dbWriteTable(dbConn, "SyllabusTableGEOG202611", midTable, overwrite=TRUE)
+          dbWriteTable(dbConn, paste0("SyllabusTable", input$prefixInput, semCode), midTable, overwrite=TRUE)
           DBFunctionsTAMU::closeAllDBConnections()
     } else {
       showNotification("Error: Could not save file.", type = "error")
@@ -424,7 +455,7 @@ server <- function(input, output, session) {
 
     #cat(paste(input$table_click_data$value, "Q1 pushed", "Value:", value, "\n"))
     dbConn <- DBFunctionsTAMU::createDBConnection()
-    midTable <- dbGetQuery(dbConn, "SELECT * FROM SyllabusTableGEOG202611")
+    midTable <- dbGetQuery(dbConn, paste0("SELECT * FROM SyllabusTable", input$prefixInput, semCode))
 
     midTable <- midTable %>%
       mutate(Q1 = case_when(course.designation1==input$table_click_data$value ~ value,
@@ -436,7 +467,8 @@ server <- function(input, output, session) {
     rvSyllabiTable(displayTable)
     midTable <- midTable %>%
       select(-"row_names")
-    dbWriteTable(dbConn, "SyllabusTableGEOG202611", midTable, overwrite=TRUE)
+    #dbWriteTable(dbConn, "SyllabusTableGEOG202611", midTable, overwrite=TRUE)
+    dbWriteTable(dbConn, paste0("SyllabusTable", input$prefixInput, semCode), midTable, overwrite=TRUE)
     DBFunctionsTAMU::closeAllDBConnections()
   })
   observeEvent(input$Q2, {
@@ -446,7 +478,7 @@ server <- function(input, output, session) {
       "No" = 0
     )
     dbConn <- DBFunctionsTAMU::createDBConnection()
-    midTable <- dbGetQuery(dbConn, "SELECT * FROM SyllabusTableGEOG202611")
+    midTable <- dbGetQuery(dbConn, paste0("SELECT * FROM SyllabusTable", input$prefixInput, semCode))
 
     midTable <- midTable %>%
       mutate(Q2 = case_when(course.designation1==input$table_click_data$value ~ value,
@@ -458,7 +490,8 @@ server <- function(input, output, session) {
     rvSyllabiTable(displayTable)
     midTable <- midTable %>%
       select(-"row_names")
-    dbWriteTable(dbConn, "SyllabusTableGEOG202611", midTable, overwrite=TRUE)
+    #dbWriteTable(dbConn, "SyllabusTableGEOG202611", midTable, overwrite=TRUE)
+    dbWriteTable(dbConn, paste0("SyllabusTable", input$prefixInput, semCode), midTable, overwrite=TRUE)
     DBFunctionsTAMU::closeAllDBConnections()
   })
   observeEvent(input$Q3, {
@@ -468,7 +501,7 @@ server <- function(input, output, session) {
       "No" = 0
     )
     dbConn <- DBFunctionsTAMU::createDBConnection()
-    midTable <- dbGetQuery(dbConn, "SELECT * FROM SyllabusTableGEOG202611")
+    midTable <- dbGetQuery(dbConn, paste0("SELECT * FROM SyllabusTable", input$prefixInput, semCode))
 
     midTable <- midTable %>%
       mutate(Q3 = case_when(course.designation1==input$table_click_data$value ~ value,
@@ -480,7 +513,7 @@ server <- function(input, output, session) {
     rvSyllabiTable(displayTable)
     midTable <- midTable %>%
       select(-"row_names")
-    dbWriteTable(dbConn, "SyllabusTableGEOG202611", midTable, overwrite=TRUE)
+    dbWriteTable(dbConn, paste0("SyllabusTable", input$prefixInput, semCode), midTable, overwrite=TRUE)
     DBFunctionsTAMU::closeAllDBConnections()
   })
   observeEvent(input$Q4, {
@@ -490,7 +523,7 @@ server <- function(input, output, session) {
       "No" = 0
     )
     dbConn <- DBFunctionsTAMU::createDBConnection()
-    midTable <- dbGetQuery(dbConn, "SELECT * FROM SyllabusTableGEOG202611")
+    midTable <- dbGetQuery(dbConn, paste0("SELECT * FROM SyllabusTable", input$prefixInput, semCode))
 
     midTable <- midTable %>%
       mutate(Q4 = case_when(course.designation1==input$table_click_data$value ~ value,
@@ -502,7 +535,7 @@ server <- function(input, output, session) {
     rvSyllabiTable(displayTable)
     midTable <- midTable %>%
       select(-"row_names")
-    dbWriteTable(dbConn, "SyllabusTableGEOG202611", midTable, overwrite=TRUE)
+    dbWriteTable(dbConn, paste0("SyllabusTable", input$prefixInput, semCode), midTable, overwrite=TRUE)
     DBFunctionsTAMU::closeAllDBConnections()
   })
   observeEvent(input$Q5, {
@@ -512,7 +545,7 @@ server <- function(input, output, session) {
       "No" = 0
     )
     dbConn <- DBFunctionsTAMU::createDBConnection()
-    midTable <- dbGetQuery(dbConn, "SELECT * FROM SyllabusTableGEOG202611")
+    midTable <- dbGetQuery(dbConn, paste0("SELECT * FROM SyllabusTable", input$prefixInput, semCode))
 
     midTable <- midTable %>%
       mutate(Q5 = case_when(course.designation1==input$table_click_data$value ~ value,
@@ -524,7 +557,7 @@ server <- function(input, output, session) {
     rvSyllabiTable(displayTable)
     midTable <- midTable %>%
       select(-"row_names")
-    dbWriteTable(dbConn, "SyllabusTableGEOG202611", midTable, overwrite=TRUE)
+    dbWriteTable(dbConn, paste0("SyllabusTable", input$prefixInput, semCode), midTable, overwrite=TRUE)
     DBFunctionsTAMU::closeAllDBConnections()
   })
   observeEvent(input$Q6, {
@@ -534,7 +567,7 @@ server <- function(input, output, session) {
       "No" = 0
     )
     dbConn <- DBFunctionsTAMU::createDBConnection()
-    midTable <- dbGetQuery(dbConn, "SELECT * FROM SyllabusTableGEOG202611")
+    midTable <- dbGetQuery(dbConn, paste0("SELECT * FROM SyllabusTable", input$prefixInput, semCode))
 
     midTable <- midTable %>%
       mutate(Q6 = case_when(course.designation1==input$table_click_data$value ~ value,
@@ -546,7 +579,7 @@ server <- function(input, output, session) {
     rvSyllabiTable(displayTable)
     midTable <- midTable %>%
       select(-"row_names")
-    dbWriteTable(dbConn, "SyllabusTableGEOG202611", midTable, overwrite=TRUE)
+    dbWriteTable(dbConn, paste0("SyllabusTable", input$prefixInput, semCode), midTable, overwrite=TRUE)
     DBFunctionsTAMU::closeAllDBConnections()
   })
   observeEvent(input$Q7, {
@@ -556,7 +589,7 @@ server <- function(input, output, session) {
       "No" = 0
     )
     dbConn <- DBFunctionsTAMU::createDBConnection()
-    midTable <- dbGetQuery(dbConn, "SELECT * FROM SyllabusTableGEOG202611")
+    midTable <- dbGetQuery(dbConn, paste0("SELECT * FROM SyllabusTable", input$prefixInput, semCode))
 
     midTable <- midTable %>%
       mutate(Q7 = case_when(course.designation1==input$table_click_data$value ~ value,
@@ -568,7 +601,7 @@ server <- function(input, output, session) {
     rvSyllabiTable(displayTable)
     midTable <- midTable %>%
       select(-"row_names")
-    dbWriteTable(dbConn, "SyllabusTableGEOG202611", midTable, overwrite=TRUE)
+    dbWriteTable(dbConn, paste0("SyllabusTable", input$prefixInput, semCode), midTable, overwrite=TRUE)
     DBFunctionsTAMU::closeAllDBConnections()
   })
   observeEvent(input$Q8, {
@@ -578,7 +611,7 @@ server <- function(input, output, session) {
       "No" = 0
     )
     dbConn <- DBFunctionsTAMU::createDBConnection()
-    midTable <- dbGetQuery(dbConn, "SELECT * FROM SyllabusTableGEOG202611")
+    midTable <- dbGetQuery(dbConn, paste0("SELECT * FROM SyllabusTable", input$prefixInput, semCode))
 
     midTable <- midTable %>%
       mutate(Q8 = case_when(course.designation1==input$table_click_data$value ~ value,
@@ -590,7 +623,7 @@ server <- function(input, output, session) {
     rvSyllabiTable(displayTable)
     midTable <- midTable %>%
       select(-"row_names")
-    dbWriteTable(dbConn, "SyllabusTableGEOG202611", midTable, overwrite=TRUE)
+    dbWriteTable(dbConn, paste0("SyllabusTable", input$prefixInput, semCode), midTable, overwrite=TRUE)
     DBFunctionsTAMU::closeAllDBConnections()
   })
   observeEvent(input$Q9, {
@@ -600,7 +633,7 @@ server <- function(input, output, session) {
       "No" = 0
     )
     dbConn <- DBFunctionsTAMU::createDBConnection()
-    midTable <- dbGetQuery(dbConn, "SELECT * FROM SyllabusTableGEOG202611")
+    midTable <- dbGetQuery(dbConn, paste0("SELECT * FROM SyllabusTable", input$prefixInput, semCode))
 
     midTable <- midTable %>%
       mutate(Q9 = case_when(course.designation1==input$table_click_data$value ~ value,
@@ -612,7 +645,7 @@ server <- function(input, output, session) {
     rvSyllabiTable(displayTable)
     midTable <- midTable %>%
       select(-"row_names")
-    dbWriteTable(dbConn, "SyllabusTableGEOG202611", midTable, overwrite=TRUE)
+    dbWriteTable(dbConn, paste0("SyllabusTable", input$prefixInput, semCode), midTable, overwrite=TRUE)
     DBFunctionsTAMU::closeAllDBConnections()
   })
   observeEvent(input$Certify, {
@@ -622,7 +655,7 @@ server <- function(input, output, session) {
       "No" = 0
     )
     dbConn <- DBFunctionsTAMU::createDBConnection()
-    midTable <- dbGetQuery(dbConn, "SELECT * FROM SyllabusTableGEOG202611")
+    midTable <- dbGetQuery(dbConn, paste0("SELECT * FROM SyllabusTable", input$prefixInput, semCode))
 
     midTable <- midTable %>%
       mutate(Certify = case_when(course.designation1==input$table_click_data$value ~ value,
@@ -640,7 +673,7 @@ server <- function(input, output, session) {
     rvSyllabiTable(displayTable)
     midTable <- midTable %>%
       select(-"row_names")
-    dbWriteTable(dbConn, "SyllabusTableGEOG202611", midTable, overwrite=TRUE)
+    dbWriteTable(dbConn, paste0("SyllabusTable", input$prefixInput, semCode), midTable, overwrite=TRUE)
     DBFunctionsTAMU::closeAllDBConnections()
 
     # Apply stamp to the syllabus
